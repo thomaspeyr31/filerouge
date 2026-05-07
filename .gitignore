@@ -1,0 +1,13 @@
+# Clés SSH
+keys/ymmo-key
+*.pem
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+crash.log
+
+# Variables sensibles
+terraform.tfvars
