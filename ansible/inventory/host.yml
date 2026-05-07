@@ -1,0 +1,64 @@
+all:
+  children:
+
+    # ===== SERVEURS WINDOWS =====
+    windows:
+      hosts:
+        SRV-DC01:
+          ansible_host: 10.0.10.10        # IP privée — accès via bastion
+          ansible_user: Administrator
+          ansible_password: "{{ dc_password }}"
+          ansible_connection: winrm
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_port: 5985
+
+    # ===== SERVEURS LINUX =====
+    linux:
+      hosts:
+        SRV-APP01:
+          ansible_host: 10.0.10.20        # IP privée — accès via bastion
+          ansible_user: ubuntu
+          ansible_ssh_private_key_file: ../keys/ymmo-key
+          ansible_connection: ssh
+          ansible_ssh_common_args: >
+            -o StrictHostKeyChecking=no
+            -o ProxyJump=ubuntu@{{ bastion_ip }}
+
+        Bastion-01:
+          ansible_host: "{{ bastion_ip }}"  # IP publique — récupérée depuis Terraform output
+          ansible_user: ubuntu
+          ansible_ssh_private_key_file: ../keys/ymmo-key
+          ansible_connection: ssh
+
+    # ===== POSTES WINDOWS SIÈGE =====
+    postes_siege:
+      hosts:
+        PC-SIEGE01:
+          ansible_host: 10.0.10.100
+          ansible_user: Administrator
+          ansible_password: "{{ poste_password }}"
+          ansible_connection: winrm
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_port: 5985
+
+    # ===== POSTES WINDOWS AGENCES =====
+    postes_agences:
+      hosts:
+        PC-AG01-01:
+          ansible_host: 10.1.10.101
+          ansible_user: Administrator
+          ansible_password: "{{ poste_password }}"
+          ansible_connection: winrm
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_port: 5985
+        PC-AG01-02:
+          ansible_host: 10.1.10.102
+          ansible_user: Administrator
+          ansible_password: "{{ poste_password }}"
+          ansible_connection: winrm
+          ansible_winrm_transport: ntlm
+          ansible_winrm_server_cert_validation: ignore
+          ansible_port: 5985

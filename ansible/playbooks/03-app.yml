@@ -1,0 +1,178 @@
+# ================================================
+# PLAYBOOK 03 — Déploiement SRV-APP01
+# Installe et configure :
+#   - Nginx (reverse proxy)
+#   - Go (backend API)
+#   - Le projet depuis Git
+#   - Service systemd (comme ton playbook escape game)
+# ================================================
+
+- name: Déploiement application Ymmo sur SRV-APP01
+  hosts: SRV-APP01
+  become: true
+
+  vars_prompt:
+    - name: git_token
+      prompt: "Token Git (Gitea/GitHub)"
+      private: yes
+
+  vars:
+    app_user: ubuntu
+    app_dir: /home/ubuntu/projet-filrouge
+    app_port: 8080
+    domain: ymmo.local
+
+  tasks:
+
+    # ===== ÉTAPE 1 — Mise à jour système =====
+    - name: Mettre à jour les paquets
+      apt:
+        update_cache: yes
+        upgrade: yes
+
+    # ===== ÉTAPE 2 — Installer les dépendances =====
+    - name: Installer les dépendances système
+      apt:
+        name:
+          - git
+          - curl
+          - wget
+          - nginx
+          - golang-go
+          - ufw
+        state: present
+
+    # ===== ÉTAPE 3 — Cloner le projet =====
+    - name: Cloner le projet depuis Git
+      git:
+        repo: "https://oauth2:{{ git_token }}@ytrack.learn.ynov.com/git/slorenzo/projet-filrouge.git"
+        dest: "{{ app_dir }}"
+        version: main
+        update: yes
+        force: yes
+      become_user: "{{ app_user }}"
+
+    # ===== ÉTAPE 4 — Configurer le service systemd =====
+    - name: Créer le service systemd pour l'API
+      copy:
+        dest: /etc/systemd/system/ymmo-api.service
+        content: |
+          [Unit]
+          Description=Ymmo API Backend
+          After=network.target
+
+          [Service]
+          User={{ app_user }}
+          WorkingDirectory={{ app_dir }}
+          ExecStart=/usr/bin/go run main.go
+          Restart=always
+          RestartSec=5
+          Environment=PORT={{ app_port }}
+          Environment=DB_HOST=10.0.20.10
+          Environment=DB_PORT=3306
+          Environment=DB_NAME=ymmo
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Recharger systemd
+      command: systemctl daemon-reload
+
+    - name: Activer et démarrer l'API
+      systemd:
+        name: ymmo-api
+        enabled: yes
+        state: started
+
+    # ===== ÉTAPE 5 — Configurer Nginx =====
+    - name: Configurer Nginx comme reverse proxy
+      copy:
+        dest: /etc/nginx/sites-available/ymmo
+        content: |
+          server {
+              listen 80;
+              server_name {{ domain }};
+
+              # Redirection HTTP → HTTPS
+              return 301 https://$host$request_uri;
+          }
+
+          server {
+              listen 443 ssl;
+              server_name {{ domain }};
+
+              # Certificat auto-signé (à remplacer par Let's Encrypt en prod)
+              ssl_certificate     /etc/ssl/certs/ymmo.crt;
+              ssl_certificate_key /etc/ssl/private/ymmo.key;
+
+              location / {
+                  proxy_pass http://127.0.0.1:{{ app_port }};
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+
+    - name: Générer un certificat SSL auto-signé
+      command: >
+        openssl req -x509 -nodes -days 365
+        -newkey rsa:2048
+        -keyout /etc/ssl/private/ymmo.key
+        -out /etc/ssl/certs/ymmo.crt
+        -subj "/C=FR/ST=PACA/L=Aix-en-Provence/O=Ymmo/CN={{ domain }}"
+      args:
+        creates: /etc/ssl/certs/ymmo.crt
+
+    - name: Activer le site Nginx Ymmo
+      file:
+        src: /etc/nginx/sites-available/ymmo
+        dest: /etc/nginx/sites-enabled/ymmo
+        state: link
+
+    - name: Désactiver le site Nginx par défaut
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Redémarrer Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
+
+    # ===== ÉTAPE 6 — Configurer le pare-feu =====
+    - name: Autoriser SSH
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Autoriser HTTPS
+      ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+
+    - name: Autoriser HTTP
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+
+    - name: Activer UFW
+      ufw:
+        state: enabled
+        policy: deny
+
+    # ===== ÉTAPE 7 — Vérification =====
+    - name: Vérifier que l'API tourne
+      uri:
+        url: "http://127.0.0.1:{{ app_port }}"
+        status_code: 200
+      register: api_check
+      ignore_errors: yes
+
+    - name: Afficher le statut de l'API
+      debug:
+        msg: "API status : {{ api_check.status | default('non joignable') }}"

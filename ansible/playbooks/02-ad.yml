@@ -1,0 +1,201 @@
+# ================================================
+# PLAYBOOK 02 — Installation et configuration AD
+# Ordre d'exécution :
+#   1. Installer le rôle AD-DS
+#   2. Promouvoir en contrôleur de domaine
+#   3. Créer les OU
+#   4. Créer les GPO
+#   5. Créer les comptes utilisateurs
+# ================================================
+
+- name: Installation Active Directory
+  hosts: SRV-DC01
+  gather_facts: yes
+
+  vars:
+    ad_domain: ymmo.local
+    ad_netbios: YMMO
+    ad_safe_mode_password: "{{ dc_password }}"
+
+  tasks:
+
+    # ===== ÉTAPE 1 — Installer le rôle AD-DS =====
+    - name: Installer le rôle AD-DS + outils de gestion
+      ansible.windows.win_feature:
+        name:
+          - AD-Domain-Services
+          - RSAT-AD-Tools
+          - RSAT-AD-PowerShell
+        state: present
+        include_management_tools: yes
+      register: ad_feature
+
+    - name: Redémarrer si requis après installation rôle
+      ansible.windows.win_reboot:
+        reboot_timeout: 180
+      when: ad_feature.reboot_required
+
+    # ===== ÉTAPE 2 — Promouvoir en contrôleur de domaine =====
+    - name: Créer la forêt AD et le domaine ymmo.local
+      microsoft.ad.domain:
+        dns_domain_name: "{{ ad_domain }}"
+        netbios_name: "{{ ad_netbios }}"
+        safe_mode_password: "{{ ad_safe_mode_password }}"
+        install_dns: yes
+        database_path: C:\Windows\NTDS
+        sysvol_path: C:\Windows\SYSVOL
+        log_path: C:\Windows\NTDS
+      register: domain_result
+
+    - name: Redémarrer après promotion contrôleur de domaine
+      ansible.windows.win_reboot:
+        reboot_timeout: 300
+        post_reboot_delay: 60
+      when: domain_result.reboot_required
+
+    # ===== ÉTAPE 3 — Créer les Unités d'Organisation =====
+    - name: Créer OU Siege
+      microsoft.ad.ou:
+        name: Siege
+        path: "DC=ymmo,DC=local"
+        state: present
+
+    - name: Créer OU Agences
+      microsoft.ad.ou:
+        name: Agences
+        path: "DC=ymmo,DC=local"
+        state: present
+
+    - name: Créer OU Utilisateurs dans Siege
+      microsoft.ad.ou:
+        name: Utilisateurs
+        path: "OU=Siege,DC=ymmo,DC=local"
+        state: present
+
+    - name: Créer OU Postes dans Siege
+      microsoft.ad.ou:
+        name: Postes
+        path: "OU=Siege,DC=ymmo,DC=local"
+        state: present
+
+    - name: Créer OU Serveurs dans Siege
+      microsoft.ad.ou:
+        name: Serveurs
+        path: "OU=Siege,DC=ymmo,DC=local"
+        state: present
+
+    - name: Créer OU Utilisateurs dans Agences
+      microsoft.ad.ou:
+        name: Utilisateurs
+        path: "OU=Agences,DC=ymmo,DC=local"
+        state: present
+
+    - name: Créer OU Postes dans Agences
+      microsoft.ad.ou:
+        name: Postes
+        path: "OU=Agences,DC=ymmo,DC=local"
+        state: present
+
+    # ===== ÉTAPE 4 — Créer les comptes utilisateurs =====
+    - name: Créer compte utilisateur siège — admin IT
+      microsoft.ad.user:
+        name: admin.it
+        firstname: Admin
+        surname: IT
+        display_name: "Admin IT Ymmo"
+        user_principal_name: "admin.it@ymmo.local"
+        password: "{{ dc_password }}"
+        path: "OU=Utilisateurs,OU=Siege,DC=ymmo,DC=local"
+        groups:
+          add:
+            - Domain Admins
+        state: present
+        password_never_expires: yes
+
+    - name: Créer compte utilisateur siège — direction
+      microsoft.ad.user:
+        name: direction
+        firstname: Direction
+        surname: Ymmo
+        display_name: "Direction Ymmo"
+        user_principal_name: "direction@ymmo.local"
+        password: "{{ dc_password }}"
+        path: "OU=Utilisateurs,OU=Siege,DC=ymmo,DC=local"
+        state: present
+        password_never_expires: no
+
+    - name: Créer compte commercial agence 1
+      microsoft.ad.user:
+        name: commercial.ag01
+        firstname: Commercial
+        surname: Agence01
+        display_name: "Commercial Agence 1"
+        user_principal_name: "commercial.ag01@ymmo.local"
+        password: "{{ poste_password }}"
+        path: "OU=Utilisateurs,OU=Agences,DC=ymmo,DC=local"
+        state: present
+        password_never_expires: no
+
+    # ===== ÉTAPE 5 — Configurer les GPO =====
+    - name: GPO — Politique mot de passe complexe
+      ansible.windows.win_shell: |
+        Import-Module GroupPolicy
+        $gpo = New-GPO -Name "Ymmo-PasswordPolicy" -ErrorAction SilentlyContinue
+        If (!$gpo) { $gpo = Get-GPO -Name "Ymmo-PasswordPolicy" }
+        Set-ADDefaultDomainPasswordPolicy `
+          -Identity "ymmo.local" `
+          -MinPasswordLength 12 `
+          -PasswordHistoryCount 10 `
+          -ComplexityEnabled $true `
+          -MaxPasswordAge 90.00:00:00 `
+          -LockoutThreshold 5 `
+          -LockoutDuration 00:30:00
+      args:
+        executable: powershell
+
+    - name: GPO — Verrouillage session après inactivité
+      ansible.windows.win_shell: |
+        Import-Module GroupPolicy
+        $gpo = New-GPO -Name "Ymmo-ScreenLock" -ErrorAction SilentlyContinue
+        If (!$gpo) { $gpo = Get-GPO -Name "Ymmo-ScreenLock" }
+        New-GPLink -Name "Ymmo-ScreenLock" -Target "DC=ymmo,DC=local" -ErrorAction SilentlyContinue
+        Set-GPRegistryValue `
+          -Name "Ymmo-ScreenLock" `
+          -Key "HKCU\Software\Policies\Microsoft\Windows\Control Panel\Desktop" `
+          -ValueName "ScreenSaveTimeOut" `
+          -Type String `
+          -Value "600"
+        Set-GPRegistryValue `
+          -Name "Ymmo-ScreenLock" `
+          -Key "HKCU\Software\Policies\Microsoft\Windows\Control Panel\Desktop" `
+          -ValueName "ScreenSaverIsSecure" `
+          -Type String `
+          -Value "1"
+      args:
+        executable: powershell
+
+    - name: GPO — Pare-feu Windows actif sur tous les postes
+      ansible.windows.win_shell: |
+        Import-Module GroupPolicy
+        $gpo = New-GPO -Name "Ymmo-Firewall" -ErrorAction SilentlyContinue
+        If (!$gpo) { $gpo = Get-GPO -Name "Ymmo-Firewall" }
+        New-GPLink -Name "Ymmo-Firewall" -Target "DC=ymmo,DC=local" -ErrorAction SilentlyContinue
+        Set-GPRegistryValue `
+          -Name "Ymmo-Firewall" `
+          -Key "HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile" `
+          -ValueName "EnableFirewall" `
+          -Type DWord `
+          -Value 1
+      args:
+        executable: powershell
+
+    - name: Vérifier que le domaine est opérationnel
+      ansible.windows.win_shell: |
+        Get-ADDomain | Select-Object DNSRoot, NetBIOSName, DomainMode
+      register: domain_check
+      args:
+        executable: powershell
+
+    - name: Afficher le statut du domaine
+      debug:
+        msg: "{{ domain_check.stdout }}"

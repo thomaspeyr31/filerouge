@@ -1,0 +1,54 @@
+# ================================================
+# PLAYBOOK 01 — Activation WinRM sur Windows
+# À lancer EN PREMIER avant tout autre playbook
+# WinRM = protocole qui permet à Ansible de
+# parler à Windows (équivalent SSH pour Linux)
+# ================================================
+
+- name: Configuration WinRM sur SRV-DC01
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+
+    - name: Activer WinRM via script PowerShell
+      ansible.builtin.raw: |
+        winrm quickconfig -q
+        winrm set winrm/config/service '@{AllowUnencrypted="true"}'
+        winrm set winrm/config/service/auth '@{Basic="true"}'
+        netsh advfirewall firewall add rule name="WinRM HTTP" protocol=TCP dir=in localport=5985 action=allow
+      args:
+        executable: powershell
+
+    - name: Vérifier que WinRM écoute sur le port 5985
+      ansible.builtin.raw: |
+        netstat -an | findstr 5985
+      register: winrm_status
+      args:
+        executable: powershell
+
+    - name: Afficher le statut WinRM
+      debug:
+        msg: "{{ winrm_status.stdout }}"
+
+    - name: Définir le hostname SRV-DC01
+      ansible.windows.win_hostname:
+        name: SRV-DC01
+      register: hostname_result
+
+    - name: Définir IP fixe 10.0.10.10
+      ansible.windows.win_shell: |
+        $adapter = Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Select-Object -First 1
+        New-NetIPAddress `
+          -InterfaceAlias $adapter.Name `
+          -IPAddress 10.0.10.10 `
+          -PrefixLength 24 `
+          -DefaultGateway 10.0.10.1
+        Set-DnsClientServerAddress `
+          -InterfaceAlias $adapter.Name `
+          -ServerAddresses 10.0.10.10, 8.8.8.8
+
+    - name: Redémarrer si hostname changé
+      ansible.windows.win_reboot:
+        reboot_timeout: 120
+      when: hostname_result.reboot_required

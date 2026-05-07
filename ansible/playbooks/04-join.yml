@@ -1,0 +1,116 @@
+# ================================================
+# PLAYBOOK 04 — Jonction des postes au domaine
+# Joint au domaine ymmo.local :
+#   - PC-SIEGE01 (subnet privé siège)
+#   - PC-AG01-01 et PC-AG01-02 (agence 1 via VPN)
+# Prérequis : playbooks 01, 02 et 03 déjà lancés
+# ================================================
+
+- name: Jonction des postes Windows au domaine ymmo.local
+  hosts:
+    - postes_siege
+    - postes_agences
+  gather_facts: yes
+
+  vars:
+    ad_domain: ymmo.local
+    ad_domain_admin: "YMMO\\Administrator"
+    ad_domain_password: "{{ dc_password }}"
+    dns_server: 10.0.10.10  # SRV-DC01
+
+  tasks:
+
+    # ===== ÉTAPE 1 — Configurer le DNS =====
+    # Les postes doivent pointer vers SRV-DC01 pour résoudre ymmo.local
+    - name: Configurer DNS vers SRV-DC01
+      ansible.windows.win_shell: |
+        $adapter = Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Select-Object -First 1
+        Set-DnsClientServerAddress `
+          -InterfaceAlias $adapter.Name `
+          -ServerAddresses {{ dns_server }}, 8.8.8.8
+      args:
+        executable: powershell
+
+    - name: Vérifier la résolution DNS de ymmo.local
+      ansible.windows.win_shell: |
+        Resolve-DnsName ymmo.local
+      register: dns_check
+      args:
+        executable: powershell
+
+    - name: Afficher résultat DNS
+      debug:
+        msg: "{{ dns_check.stdout }}"
+
+    # ===== ÉTAPE 2 — Renommer les postes =====
+    - name: Renommer le poste selon son hostname
+      ansible.windows.win_hostname:
+        name: "{{ inventory_hostname }}"
+      register: rename_result
+
+    - name: Redémarrer après renommage
+      ansible.windows.win_reboot:
+        reboot_timeout: 120
+      when: rename_result.reboot_required
+
+    # ===== ÉTAPE 3 — Joindre le domaine =====
+    - name: Joindre le domaine ymmo.local
+      microsoft.ad.membership:
+        dns_domain_name: "{{ ad_domain }}"
+        domain_admin_user: "{{ ad_domain_admin }}"
+        domain_admin_password: "{{ ad_domain_password }}"
+        state: domain
+      register: join_result
+
+    - name: Redémarrer après jonction domaine
+      ansible.windows.win_reboot:
+        reboot_timeout: 180
+        post_reboot_delay: 30
+      when: join_result.reboot_required
+
+    # ===== ÉTAPE 4 — Vérifier la jonction =====
+    - name: Vérifier que le poste est bien dans le domaine
+      ansible.windows.win_shell: |
+        (Get-WmiObject Win32_ComputerSystem).Domain
+      register: domain_check
+      args:
+        executable: powershell
+
+    - name: Afficher le domaine du poste
+      debug:
+        msg: "{{ inventory_hostname }} est dans le domaine : {{ domain_check.stdout }}"
+
+    # ===== ÉTAPE 5 — Déplacer dans la bonne OU =====
+    - name: Déplacer PC-SIEGE01 dans OU Postes Siege
+      ansible.windows.win_shell: |
+        $computer = Get-ADComputer -Identity "{{ inventory_hostname }}"
+        Move-ADObject `
+          -Identity $computer.DistinguishedName `
+          -TargetPath "OU=Postes,OU=Siege,DC=ymmo,DC=local"
+      args:
+        executable: powershell
+      delegate_to: SRV-DC01
+      when: inventory_hostname == "PC-SIEGE01"
+
+    - name: Déplacer postes agences dans OU Postes Agences
+      ansible.windows.win_shell: |
+        $computer = Get-ADComputer -Identity "{{ inventory_hostname }}"
+        Move-ADObject `
+          -Identity $computer.DistinguishedName `
+          -TargetPath "OU=Postes,OU=Agences,DC=ymmo,DC=local"
+      args:
+        executable: powershell
+      delegate_to: SRV-DC01
+      when: inventory_hostname in ['PC-AG01-01', 'PC-AG01-02']
+
+    # ===== ÉTAPE 6 — Appliquer les GPO =====
+    - name: Forcer l'application des GPO
+      ansible.windows.win_shell: |
+        gpupdate /force
+      args:
+        executable: powershell
+      register: gpupdate_result
+
+    - name: Afficher résultat GPO
+      debug:
+        msg: "{{ gpupdate_result.stdout }}"

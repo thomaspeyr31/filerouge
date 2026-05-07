@@ -1,0 +1,14 @@
+# Variables globales — toutes les machines
+bastion_ip: "{{ lookup('pipe', 'cd .. && terraform output -raw bastion_public_ip') }}"
+
+# Domaine AD
+ad_domain: ymmo.local
+ad_netbios: YMMO
+ad_domain_admin: Administrator
+ad_domain_password: "{{ dc_password }}"
+
+# Mots de passe — à passer en variables d'environnement
+# export ANSIBLE_DC_PASSWORD="TonMotDePasse"
+# export ANSIBLE_POSTE_PASSWORD="TonMotDePasse"
+dc_password: "{{ lookup('env', 'ANSIBLE_DC_PASSWORD') }}"
+poste_password: "{{ lookup('env', 'ANSIBLE_POSTE_PASSWORD') }}"
