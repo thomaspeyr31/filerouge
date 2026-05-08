@@ -1,7 +1,10 @@
-# SG-BASTION
+# ================================================
+# MODULE : Security Groups - Ymmo
+# ================================================
+
 resource "aws_security_group" "bastion" {
-  name        = "sg-ymmo-bastion"
-  description = "Bastion — acces SSH/RDP administrateurs"
+  name        = "ymmo-bastion"
+  description = "Bastion - acces SSH/RDP administrateurs"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -28,15 +31,14 @@ resource "aws_security_group" "bastion" {
   }
 
   tags = {
-    Name    = "sg-ymmo-bastion"
+    Name    = "ymmo-bastion"
     Project = "ymmo"
   }
 }
 
-# SG-APP (SRV-APP01)
 resource "aws_security_group" "app" {
-  name        = "sg-ymmo-app"
-  description = "SRV-APP01 — HTTPS public, SSH depuis bastion"
+  name        = "ymmo-app"
+  description = "SRV-APP01 - HTTPS public, SSH depuis bastion"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -79,15 +81,14 @@ resource "aws_security_group" "app" {
   }
 
   tags = {
-    Name    = "sg-ymmo-app"
+    Name    = "ymmo-app"
     Project = "ymmo"
   }
 }
 
-# SG-DC (SRV-DC01)
 resource "aws_security_group" "dc" {
-  name        = "sg-ymmo-dc"
-  description = "SRV-DC01 — AD/DNS/DHCP"
+  name        = "ymmo-dc"
+  description = "SRV-DC01 - AD/DNS/DHCP"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -160,15 +161,14 @@ resource "aws_security_group" "dc" {
   }
 
   tags = {
-    Name    = "sg-ymmo-dc"
+    Name    = "ymmo-dc"
     Project = "ymmo"
   }
 }
 
-# SG-POSTE
 resource "aws_security_group" "poste" {
-  name        = "sg-ymmo-poste"
-  description = "Postes Windows — RDP depuis bastion uniquement"
+  name        = "ymmo-poste"
+  description = "Postes Windows - RDP depuis bastion uniquement"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -187,15 +187,14 @@ resource "aws_security_group" "poste" {
   }
 
   tags = {
-    Name    = "sg-ymmo-poste"
+    Name    = "ymmo-poste"
     Project = "ymmo"
   }
 }
 
-# SG-DATA (RDS)
 resource "aws_security_group" "data" {
-  name        = "sg-ymmo-data"
-  description = "RDS MySQL — acces SG-APP uniquement"
+  name        = "ymmo-data"
+  description = "RDS MySQL - acces SG-APP uniquement"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -214,7 +213,7 @@ resource "aws_security_group" "data" {
   }
 
   tags = {
-    Name    = "sg-ymmo-data"
+    Name    = "ymmo-data"
     Project = "ymmo"
   }
 }

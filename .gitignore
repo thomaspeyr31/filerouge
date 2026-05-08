@@ -11,3 +11,4 @@ crash.log
 
 # Variables sensibles
 terraform.tfvars
+.env

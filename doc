@@ -1,0 +1,28 @@
+cd ansible
+
+# Récupère l'IP publique du bastion
+export BASTION_IP=$(cd .. && terraform output -raw bastion_public_ip)
+
+# Lance le playbook
+ansible-playbook playbooks/01-winrm.yml -i inventory/hosts.yml
+
+
+# une fois terraform la,ce faire cette commande : 
+
+cd ansible
+
+# 1 — Exporter les variables sensibles
+export ANSIBLE_DC_PASSWORD="TonMotDePasseAdmin"
+export ANSIBLE_POSTE_PASSWORD="TonMotDePassePostes"
+
+# 2 — Activer WinRM sur Windows
+ansible-playbook playbooks/01-winrm.yml -i inventory/hosts.yml
+
+# 3 — Installer et configurer AD
+ansible-playbook playbooks/02-ad.yml -i inventory/hosts.yml
+
+# 4 — Déployer l'application
+ansible-playbook playbooks/03-app.yml -i inventory/hosts.yml
+
+# 5 — Joindre les postes au domaine
+ansible-playbook playbooks/04-join.yml -i inventory/hosts.yml

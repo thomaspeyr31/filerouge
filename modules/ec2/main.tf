@@ -26,7 +26,6 @@ resource "aws_instance" "bastion" {
   key_name                    = aws_key_pair.ymmo.key_name
   associate_public_ip_address = true
 
-  private_ip = "10.0.1.10"
 
   tags = {
     Name    = "Bastion-01"
@@ -45,7 +44,6 @@ resource "aws_instance" "srv_app" {
   key_name                    = aws_key_pair.ymmo.key_name
   associate_public_ip_address = false
 
-  private_ip = "10.0.10.20"
 
   # Script de démarrage — installe les dépendances de base
   user_data = <<-EOF
@@ -73,7 +71,6 @@ resource "aws_instance" "srv_dc" {
   key_name                    = aws_key_pair.ymmo.key_name
   associate_public_ip_address = false
 
-  private_ip = "10.0.10.10"
 
   # Script de démarrage Windows (PowerShell)
   user_data = <<-EOF
